@@ -80,7 +80,7 @@ Simply type your message and press Enter to chat with the model.
 Use the @ symbol followed by a document ID to include document content in your query:
 
 ```
-> Tell me about @deposition.md
+> Tell me about @meetings/987654321
 ```
 
 ### Commands
