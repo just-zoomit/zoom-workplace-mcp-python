@@ -7,6 +7,22 @@ from core.claude import Claude
 from mcp_client import MCPClient
 
 
+def _split_resource_path(resource_path: str) -> tuple[str, str]:
+    """
+    Accepts "meetings/987654321" or "meetings:987654321".
+    Returns (resource_type, resource_id).
+    """
+    if "/" in resource_path:
+        rtype, rid = resource_path.split("/", 1)
+    elif ":" in resource_path:
+        rtype, rid = resource_path.split(":", 1)
+    else:
+        raise ValueError(
+            "Resource path must be 'type/id' or 'type:id', e.g., 'meetings/987654321'."
+        )
+    return rtype.strip(), rid.strip()
+
+
 class CliChat(Chat):
     def __init__(
         self,
@@ -15,38 +31,71 @@ class CliChat(Chat):
         claude_service: Claude,
     ):
         super().__init__(clients=clients, claude_service=claude_service)
-
         self.doc_client: MCPClient = doc_client
 
     async def list_prompts(self) -> list[Prompt]:
         return await self.doc_client.list_prompts()
 
-    # May have to changed to align with resources 
+    # ----------------- UPDATED FOR ZOOM WORKPLACE RESOURCES -----------------
     async def list_docs_ids(self) -> list[str]:
-        return await self.doc_client.read_resource("res://resources")
+        """
+        Returns a flat list of "type/id" strings for convenience, e.g.:
+          ["meetings/987654321", "team_chat/msg_1001", "mail/email_2001", ...]
+        """
+        mapping = await self.doc_client.read_resource("res://resources")
+        # mapping is expected to be: { "meetings": [...], "team_chat": [...], "mail": [...], "calendar": [...] }
+        flat = [f"{rtype}/{rid}" for rtype, ids in mapping.items() for rid in ids]
+        # Stable ordering helps deterministic prompts/tests
+        return sorted(flat, key=str)
 
-    async def get_doc_content(self, doc_id: str) -> str:
-        return await self.doc_client.read_resource(f"res://resources/{doc_id}")
-    # May have to changed to align with resources 
-    
+    async def get_doc_content(self, doc_id: str) -> dict:
+        """
+        Fetch a specific Zoom Workplace item using combined "type/id".
+        Accepts "type/id" or "type:id".
+        """
+        rtype, rid = _split_resource_path(doc_id)
+        return await self.doc_client.read_resource(f"res://resources/{rtype}/{rid}")
+    # -----------------------------------------------------------------------
+
     async def get_prompt(
         self, command: str, doc_id: str
     ) -> list[PromptMessage]:
+        # For backward compatibility, we still pass a single "doc_id" arg.
+        # Ensure callers supply "type/id" (e.g., "meetings/987654321").
         return await self.doc_client.get_prompt(command, {"doc_id": doc_id})
 
     async def _extract_resources(self, query: str) -> str:
+        """
+        Finds @mentions in the query and inlines their resource content.
+
+        Supports: @meetings/987654321 or @meetings:987654321
+        """
+        # Raw mentions without the "@" prefix
         mentions = [word[1:] for word in query.split() if word.startswith("@")]
 
-        doc_ids = await self.list_docs_ids()
-        mentioned_docs: list[Tuple[str, str]] = []
+        # Build a fast lookup set from available "type/id"
+        all_ids = await self.list_docs_ids()
+        all_ids_set = set(all_ids)
 
-        for doc_id in doc_ids:
-            if doc_id in mentions:
+        mentioned_docs: list[Tuple[str, dict]] = []
+
+        # Normalize each mention to "type/id"
+        normalized_mentions = []
+        for m in mentions:
+            if ":" in m:
+                rtype, rid = _split_resource_path(m)
+                normalized_mentions.append(f"{rtype}/{rid}")
+            else:
+                normalized_mentions.append(m)
+
+        # Only pull those that actually exist in the MCP resources
+        for doc_id in normalized_mentions:
+            if doc_id in all_ids_set:
                 content = await self.get_doc_content(doc_id)
                 mentioned_docs.append((doc_id, content))
 
         return "".join(
-            f'\n<document id="{doc_id}">\n{content}\n</document>\n'
+            f'\n<resource id="{doc_id}">\n{content}\n</resource>\n'
             for doc_id, content in mentioned_docs
         )
 
@@ -57,9 +106,9 @@ class CliChat(Chat):
         words = query.split()
         command = words[0].replace("/", "")
 
-        messages = await self.doc_client.get_prompt(
-            command, {"doc_id": words[1]}
-        )
+        # Expect "type/id" after the command, e.g. `/summarize meetings/987654321`
+        target = words[1] if len(words) > 1 else ""
+        messages = await self.doc_client.get_prompt(command, {"doc_id": target})
 
         self.messages += convert_prompt_messages_to_message_params(messages)
         return True
@@ -81,11 +130,13 @@ class CliChat(Chat):
         {added_resources}
         </context>
 
-        Note the user's query might contain references to documents like "@report.docx". The "@" is only
-        included as a way of mentioning the doc. The actual name of the document would be "report.docx".
-        If the document content is included in this prompt, you don't need to use an additional tool to read the document.
-        Answer the user's question directly and concisely. Start with the exact information they need. 
-        Don't refer to or mention the provided context in any way - just use it to inform your answer.
+        Notes:
+        - Users may reference Zoom Workplace resources with mentions like "@meetings/987654321" or "@team_chat/msg_1001".
+        - The "@" is only a mention marker; the actual resource key is "type/id".
+        - If the resource content is already included above, do not call additional tools to fetch it again.
+
+        Answer the user's question directly and concisely. Start with the exact information they need.
+        Do not refer to the provided context explicitly; just use it to inform your answer.
         """
 
         self.messages.append({"role": "user", "content": prompt})
