@@ -77,7 +77,7 @@ Simply type your message and press Enter to chat with the model.
 
 ### Document Retrieval
 
-Use the @ symbol followed by a document ID to include document content in your query:
+Use the @ symbol followed by the reasource type and ID to include content in your query:
 
 ```
 > Tell me about @meetings/987654321
@@ -88,7 +88,7 @@ Use the @ symbol followed by a document ID to include document content in your q
 Use the / prefix to execute commands defined in the MCP server:
 
 ```
-> /summarize deposition.md
+> /summarize mail/email_2001
 ```
 
 Commands will auto-complete when you press Tab.
@@ -97,7 +97,7 @@ Commands will auto-complete when you press Tab.
 
 ### Adding New Documents
 
-Edit the `mcp_server.py` file to add new documents to the `docs` dictionary.
+Edit the `mcp_server.py` file to add new resources to the `zoom_data` dictionary.
 
 ### Implementing MCP Features
 
