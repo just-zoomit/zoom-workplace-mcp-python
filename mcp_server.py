@@ -1,6 +1,7 @@
 from typing import Dict, Literal
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.prompts import base
 
 # Name this MCP for clarity
 mcp = FastMCP("ZoomWorkplaceMCP", log_level="ERROR")
@@ -169,6 +170,40 @@ def get_zoom_resource(
 
 
 # TODO: Write a prompt to rewrite a doc in markdown format
+@mcp.prompt(
+    name="format",
+    description="Format a Zoom Workplace item as markdown for display.",
+)
+def format_document(
+    resource_type: ResourceType = Field(
+        description="The Zoom dataset to format. One of: 'meetings', 'team_chat', 'mail', 'calendar'."
+    ),
+    resource_id: str = Field(
+        description="The ID of the item to format (e.g., meetingId, messageId, emailId, eventId)."
+    ),
+) -> list[dict]:
+    prompt = f"""
+Reformat the Zoom Workplace **{resource_type}** item below into clear Markdown for display.
+Use headings, bullet points, and concise sections. Emojis are okay when tasteful.
+
+Item identifier:
+<resource>{resource_id}</resource>
+
+After you produce the Markdown, call the `edit_zoom_resource` tool to save it back:
+- resource_type = "{resource_type}"
+- resource_id   = "{resource_id}"
+- new_content   = {{ "markdown": "<your formatted markdown here>" }}
+
+Return only the formatted Markdown in your assistant reply.
+""".strip()
+
+    # IMPORTANT: content must be a plain string for this MCP runtime
+    return [{"role": "user", "content": prompt}]
+
+
+
+
+# ---------------------------- RUN MCP SERVER ----------------------------
 # TODO: Write a prompt to summarize a doc
 
 
