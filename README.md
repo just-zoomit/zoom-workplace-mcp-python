@@ -69,7 +69,7 @@ pip install anthropic python-dotenv prompt-toolkit "mcp[cli]==1.8.0"
 python main.py
 ```
 
-##Codelab
+## Codelab
 
 * [How to get a Zoom Workplace data into MCP server](https://just-zoomit.github.io/zoom-workplace-mcp-codelab)
 ---
